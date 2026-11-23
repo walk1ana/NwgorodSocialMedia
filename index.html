@@ -60,11 +60,11 @@
       </section>
 
       <section class="view" id="searchView">
-        <div class="page-title"><p class="eyebrow">ОТКРЫВАЙ НОВОЕ</p><h1>Исследовать</h1><p class="subtext">Ищи публикации и знакомься с демо-профилями.</p></div>
+        <div class="page-title"><p class="eyebrow">ОТКРЫВАЙ НОВОЕ</p><h1>Исследовать</h1><p class="subtext">Ищи публикации и открывай интересные темы города.</p></div>
         <label class="search-box">⌕ <input id="searchInput" placeholder="Поиск по ленте"></label>
         <div class="topic-row" id="topicFilters"><button type="button" data-tag="">Все</button><button type="button" data-tag="город">#город</button><button type="button" data-tag="идеи">#идеи</button><button type="button" data-tag="события">#события</button><button type="button" data-tag="фото">#фото</button></div>
         <div id="searchResults" class="post-list"></div>
-        <div class="card note-card"><b>Поиск людей</b><p>В этой стартовой версии доступны только демонстрационные профили. Настоящий поиск пользователей появится после подключения базы данных.</p></div>
+        <div class="card note-card"><b>Поиск людей</b><p>Поиск жителей станет доступен после подключения общей базы пользователей.</p></div>
       </section>
 
       <section class="view" id="messagesView">
@@ -79,7 +79,7 @@
           <p class="crypto-warning">Фраза не сохраняется. Если забудешь её, восстановить сообщения невозможно. Не используй пароль от аккаунта.</p>
         </div>
         <div class="card encrypted-chat">
-          <div class="encrypted-chat-head"><div class="avatar avatar-blue">Я</div><div><b>Защищённые заметки</b><p>Только на этом устройстве · демо</p></div></div>
+          <div class="encrypted-chat-head"><div class="avatar avatar-blue">Я</div><div><b>Защищённые заметки</b><p>Заметки хранятся только на этом устройстве</p></div></div>
           <div id="encryptedMessages" class="encrypted-messages"><div class="empty">Сначала разблокируй шифрование.</div></div>
           <form id="encryptedMessageForm" class="encrypted-message-form">
             <textarea id="encryptedMessageInput" maxlength="2000" rows="2" placeholder="Сообщение будет зашифровано…" disabled required></textarea>
@@ -94,7 +94,7 @@
         <div class="page-title"><p class="eyebrow">ТВОЯ СТРАНИЦА</p><h1>Профиль</h1></div>
         <div class="profile-hero card"><div class="profile-cover"></div><div class="profile-main"><div class="avatar profile-avatar avatar-me">Я</div><button class="outline-btn" id="editProfile">Изменить профиль</button><h2 id="profileName">Горожанин</h2><p id="profileBio">Исследую свой город и делюсь моментами.</p><div class="stats"><div><b id="postCount">0</b><span>публикаций</span></div><div><b id="followingCount">0</b><span>подписок</span></div><div><b>1</b><span>подписчик</span></div></div></div></div>
         <div class="section-heading"><h2>Мои публикации</h2></div><div id="myPosts" class="post-list"></div><div class="section-heading"><h2>Избранное</h2></div><div id="savedPosts" class="post-list saved-posts"></div>
-        <div class="card privacy-card"><b>Твои данные</b><p>Пока публикации и профиль хранятся только в этом браузере на этом устройстве. Не публикуй личный адрес, телефон или другие приватные данные.</p><button class="text-btn danger" id="resetData">Сбросить демо-данные</button></div>
+        <div class="card privacy-card"><b>Твои данные</b><p>Пока публикации и профиль хранятся только в этом браузере на этом устройстве. Не публикуй личный адрес, телефон или другие приватные данные.</p><button class="text-btn danger" id="resetData">Очистить локальные данные</button></div>
       </section>
     </main>
 
@@ -114,5 +114,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="auth.js"></script>
   <script src="app.js"></script>
+  <script src="supabase-integration.js"></script>
 </body>
 </html>
