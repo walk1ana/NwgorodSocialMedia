@@ -67,6 +67,19 @@
         <div class="card note-card"><b>Поиск людей</b><p>Поиск жителей станет доступен после подключения общей базы пользователей.</p></div>
       </section>
 
+      <section class="view" id="friendsView">
+        <div class="page-title"><p class="eyebrow">ТВОЁ СООБЩЕСТВО</p><h1>Друзья</h1><p class="subtext">Находи жителей, отправляй заявки и собирай свой круг общения.</p></div>
+        <label class="search-box">⌕ <input id="peopleSearch" type="search" maxlength="40" placeholder="Найти человека по имени"></label>
+        <div class="section-heading friends-section-heading"><h2>Результаты поиска</h2></div>
+        <div id="peopleResults" class="people-list"><div class="empty">Введи имя, чтобы найти жителей NewGorod.</div></div>
+        <div class="section-heading friends-section-heading"><h2>Входящие заявки</h2><button class="text-btn" id="refreshFriends" type="button">Обновить</button></div>
+        <div id="incomingRequests" class="people-list"><div class="empty">Загрузка заявок…</div></div>
+        <div class="section-heading friends-section-heading"><h2>Отправленные заявки</h2></div>
+        <div id="outgoingRequests" class="people-list"><div class="empty">Загрузка заявок…</div></div>
+        <div class="section-heading friends-section-heading"><h2>Мои друзья</h2></div>
+        <div id="friendsList" class="people-list"><div class="empty">Загрузка друзей…</div></div>
+      </section>
+
       <section class="view" id="messagesView">
         <div class="page-title"><p class="eyebrow">ЗАЩИТА ПЕРЕПИСКИ</p><h1>Сообщения</h1><p class="subtext">Локальный зашифрованный чат-черновик.</p></div>
         <div class="card encryption-panel">
@@ -92,7 +105,7 @@
 
       <section class="view" id="profileView">
         <div class="page-title"><p class="eyebrow">ТВОЯ СТРАНИЦА</p><h1>Профиль</h1></div>
-        <div class="profile-hero card"><div class="profile-cover"></div><div class="profile-main"><div class="avatar profile-avatar avatar-me">Я</div><button class="outline-btn" id="editProfile">Изменить профиль</button><h2 id="profileName">Горожанин</h2><p id="profileBio">Исследую свой город и делюсь моментами.</p><div class="stats"><div><b id="postCount">0</b><span>публикаций</span></div><div><b id="followingCount">0</b><span>подписок</span></div><div><b>1</b><span>подписчик</span></div></div></div></div>
+        <div class="profile-hero card"><div class="profile-cover"></div><div class="profile-main"><div class="avatar profile-avatar avatar-me">Я</div><button class="outline-btn" id="editProfile">Изменить профиль</button><h2 id="profileName">Горожанин</h2><p id="profileBio">Исследую свой город и делюсь моментами.</p><div class="stats"><div><b id="postCount">0</b><span>публикаций</span></div><div><b id="followingCount">0</b><span>подписок</span></div><div><b id="friendCount">0</b><span>друзей</span></div></div></div></div>
         <div class="section-heading"><h2>Мои публикации</h2></div><div id="myPosts" class="post-list"></div><div class="section-heading"><h2>Избранное</h2></div><div id="savedPosts" class="post-list saved-posts"></div>
         <div class="card privacy-card"><b>Твои данные</b><p>Пока публикации и профиль хранятся только в этом браузере на этом устройстве. Не публикуй личный адрес, телефон или другие приватные данные.</p><button class="text-btn danger" id="resetData">Очистить локальные данные</button></div>
       </section>
@@ -101,6 +114,7 @@
     <nav class="bottom-nav" aria-label="Основная навигация">
       <button class="nav-item selected" data-view="feedView"><span>⌂</span><small>Лента</small></button>
       <button class="nav-item" data-view="searchView"><span>⌕</span><small>Поиск</small></button>
+      <button class="nav-item" data-view="friendsView"><span>♧</span><small>Друзья</small></button>
       <button class="nav-item create-nav" id="navCreate" aria-label="Создать публикацию"><span>＋</span></button>
       <button class="nav-item" data-view="messagesView"><span>✉</span><small>Чаты</small></button>
       <button class="nav-item" data-view="profileView"><span>◉</span><small>Профиль</small></button>

@@ -1,26 +1,18 @@
-NewGorod server integration stage
+NewGorod — friends feature release
 
-Supabase SQL migration: user confirmed Success.
-Implemented in this package:
-- Supabase-backed profile read/update and avatar uploads
-- Supabase-backed feed posts, image uploads, edits, deletes
-- Supabase-backed likes and comments
-- Supabase-backed follows
-- Supabase-backed stories
-- Supabase-backed post reports
-- Saved-post list remains private in browser localStorage
+Added:
+- Dedicated Friends navigation page.
+- Search registered profiles by display name.
+- Send friend requests.
+- Incoming and outgoing request lists.
+- Accept and reject requests.
+- Mutual friends list and remove-friend action.
+- Friend count in the profile.
+- Supabase RLS migration for friend_requests.
 
-Still not implemented as a complete production feature:
-- Network direct/group messaging UI (the existing encrypted notes remain local to this browser)
-- Notifications UI and realtime subscriptions
-- Full moderation dashboard and moderator role provisioning
-- Account/profile discovery and robust follow UI for users without posts
-- End-to-end browser testing against the live Supabase project
+Required before use:
+1. Run supabase/migrations/202611240002_friend_requests.sql in Supabase SQL Editor.
+2. Deploy the complete project folder to GitHub Pages.
+3. Test with two separate accounts.
 
-Deployment:
-1. Upload the contents of this folder to the GitHub Pages repository.
-2. Ensure Supabase Auth email confirmation/redirect URLs include the GitHub Pages URL.
-3. Test with two separate user accounts: signup, profile edit, create post, like, comment, follow, story, report, delete.
-4. Do not add service_role/secret keys to this repository.
-
-JavaScript syntax checks passed locally. This is an integration build, not a claim of completed production security or QA certification.
+The feature has been syntax-checked locally. It has not been tested against the user's live Supabase project or in a real browser session. The friends UI depends on the second SQL migration.

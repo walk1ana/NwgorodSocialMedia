@@ -228,4 +228,142 @@
     $('#nameInput').value = data.name; $('#bioInput').value = data.bio;
     avatarFile = null; $('#avatarInput').value = ''; $('#profileDialog').showModal();
   };
+
+
+  // Mutual friendship requests. Requires migration 202611240002_friend_requests.sql.
+  let friendRows = [];
+  let peopleSearchSequence = 0;
+  const friendProfileCache = new Map();
+  const friendName = p => p?.display_name || 'Горожанин';
+  const friendAvatar = p => publicUrl('avatars', p?.avatar_path);
+  const friendPersonCard = (profile, actionMarkup = '', subtitle = '') => {
+    const name = friendName(profile);
+    const photo = friendAvatar(profile);
+    return `<article class="people-card">${photo ? `<div class="avatar" style="background-image:url('${esc(photo)}')"></div>` : `<div class="avatar">${esc(name[0] || 'Г')}</div>`}<div class="people-info"><b>${esc(name)}</b><p>${esc(subtitle || profile.bio || 'Житель NewGorod')}</p></div><div class="people-actions">${actionMarkup}</div></article>`;
+  };
+  const emptyPeople = message => `<div class="empty">${esc(message)}</div>`;
+  async function getFriendProfiles(ids) {
+    const unique = [...new Set(ids.filter(id => id && id !== uid()))];
+    const missing = unique.filter(id => !friendProfileCache.has(id));
+    if (missing.length) {
+      const { data: rows, error } = await sb().from('profiles')
+        .select('id,username,display_name,bio,avatar_path').in('id', missing);
+      if (error) throw error;
+      rows.forEach(row => friendProfileCache.set(row.id, row));
+    }
+    return unique.map(id => friendProfileCache.get(id)).filter(Boolean);
+  }
+  async function loadFriendRows() {
+    if (!uid() || !sb()) return;
+    const { data: rows, error } = await sb().from('friend_requests').select('*')
+      .or(`sender_id.eq.${uid()},recipient_id.eq.${uid()}`)
+      .order('created_at', { ascending: false }).limit(500);
+    if (error) throw error;
+    friendRows = rows || [];
+    const ids = friendRows.flatMap(row => [row.sender_id, row.recipient_id]);
+    await getFriendProfiles(ids);
+    const incoming = friendRows.filter(row => row.status === 'pending' && row.recipient_id === uid());
+    const outgoing = friendRows.filter(row => row.status === 'pending' && row.sender_id === uid());
+    const friends = friendRows.filter(row => row.status === 'accepted');
+    $('#incomingRequests').innerHTML = incoming.length ? incoming.map(row => {
+      const profile = friendProfileCache.get(row.sender_id);
+      return friendPersonCard(profile, `<button class="primary-btn" data-friend-action="accept" data-request-id="${row.id}">Принять</button><button class="danger-action" data-friend-action="reject" data-request-id="${row.id}">Отклонить</button>`, 'Хочет добавить тебя в друзья');
+    }).join('') : emptyPeople('Новых заявок пока нет.');
+    $('#outgoingRequests').innerHTML = outgoing.length ? outgoing.map(row => {
+      const profile = friendProfileCache.get(row.recipient_id);
+      return friendPersonCard(profile, `<button data-friend-action="cancel" data-request-id="${row.id}">Отменить</button>`, 'Заявка отправлена');
+    }).join('') : emptyPeople('Ты пока никому не отправлял заявку.');
+    $('#friendsList').innerHTML = friends.length ? friends.map(row => {
+      const friendId = row.sender_id === uid() ? row.recipient_id : row.sender_id;
+      const profile = friendProfileCache.get(friendId);
+      return friendPersonCard(profile, `<button class="danger-action" data-friend-action="remove" data-request-id="${row.id}">Удалить</button>`, 'Уже в друзьях');
+    }).join('') : emptyPeople('Здесь появятся люди, чьи заявки ты примешь.');
+    const count = $('#friendCount');
+    if (count) count.textContent = String(friends.length);
+    renderPeopleSearch($('#peopleSearch').value);
+  }
+  async function renderPeopleSearch(query) {
+    const root = $('#peopleResults');
+    const q = String(query || '').trim();
+    const seq = ++peopleSearchSequence;
+    if (!q) { root.innerHTML = emptyPeople('Введи имя, чтобы найти жителей NewGorod.'); return; }
+    if (q.length < 2) { root.innerHTML = emptyPeople('Введи хотя бы 2 символа.'); return; }
+    root.innerHTML = emptyPeople('Ищем жителей…');
+    try {
+      const safeQuery = q.replace(/[%,_]/g, ' ').trim();
+      const { data: profiles, error } = await sb().from('profiles')
+        .select('id,username,display_name,bio,avatar_path')
+        .ilike('display_name', `%${safeQuery}%`).neq('id', uid())
+        .order('display_name', { ascending: true }).limit(30);
+      if (error) throw error;
+      if (seq !== peopleSearchSequence) return;
+      (profiles || []).forEach(profile => friendProfileCache.set(profile.id, profile));
+      if (!profiles?.length) { root.innerHTML = emptyPeople('По этому имени никого не нашли.'); return; }
+      root.innerHTML = profiles.map(profile => {
+        const relation = friendRows.find(row =>
+          (row.sender_id === uid() && row.recipient_id === profile.id) ||
+          (row.sender_id === profile.id && row.recipient_id === uid())
+        );
+        let actions = '';
+        if (!relation) actions = `<button class="primary-btn" data-friend-action="send" data-user-id="${profile.id}">Добавить</button>`;
+        else if (relation.status === 'accepted') actions = '<button disabled>✓ Вы друзья</button>';
+        else if (relation.status === 'pending' && relation.sender_id === uid()) actions = '<button disabled>Заявка отправлена</button>';
+        else if (relation.status === 'pending') actions = `<button class="primary-btn" data-friend-action="accept" data-request-id="${relation.id}">Принять заявку</button>`;
+        else actions = `<button class="primary-btn" data-friend-action="send" data-user-id="${profile.id}">Добавить снова</button>`;
+        return friendPersonCard(profile, actions, profile.bio || 'Житель NewGorod');
+      }).join('');
+    } catch (error) {
+      if (seq === peopleSearchSequence) root.innerHTML = emptyPeople(`Не удалось найти жителей: ${error.message || 'ошибка сервера'}`);
+    }
+  }
+  async function handleFriendAction(button) {
+    const action = button.dataset.friendAction;
+    const requestId = button.dataset.requestId;
+    const targetId = button.dataset.userId;
+    button.disabled = true;
+    try {
+      if (action === 'send') {
+        const { error } = await sb().from('friend_requests').insert({ sender_id: uid(), recipient_id: targetId });
+        if (error) throw error;
+        toast('Заявка в друзья отправлена.');
+      } else if (action === 'accept' || action === 'reject') {
+        const { error } = await sb().from('friend_requests').update({ status: action === 'accept' ? 'accepted' : 'rejected' })
+          .eq('id', requestId).eq('recipient_id', uid()).eq('status', 'pending');
+        if (error) throw error;
+        toast(action === 'accept' ? 'Теперь вы друзья!' : 'Заявка отклонена.');
+      } else if (action === 'cancel' || action === 'remove') {
+        const { error } = await sb().from('friend_requests').delete().eq('id', requestId);
+        if (error) throw error;
+        toast(action === 'remove' ? 'Пользователь удалён из друзей.' : 'Заявка отменена.');
+      }
+      await loadFriendRows();
+    } catch (error) {
+      reportError('Не удалось выполнить действие с друзьями', error);
+      button.disabled = false;
+    }
+  }
+  $('#peopleSearch').addEventListener('input', event => renderPeopleSearch(event.target.value));
+  $('#refreshFriends').addEventListener('click', async () => {
+    try { await loadFriendRows(); toast('Список друзей обновлён.'); }
+    catch (error) { reportError('Не удалось обновить список друзей', error); }
+  });
+  $('#friendsView').addEventListener('click', event => {
+    const button = event.target.closest('[data-friend-action]');
+    if (button && !button.disabled) handleFriendAction(button);
+  });
+  document.querySelector('[data-view="friendsView"]').addEventListener('click', () => {
+    loadFriendRows().catch(error => reportError('Не удалось загрузить друзей', error));
+  });
+  window.addEventListener('newgorod-auth', event => {
+    remoteUser = event.detail?.user || null;
+    friendRows = [];
+    friendProfileCache.clear();
+    if (remoteUser) loadFriendRows().catch(error => reportError('Не удалось загрузить друзей', error));
+    else {
+      ['incomingRequests','outgoingRequests','friendsList'].forEach(id => { const el = $('#' + id); if (el) el.innerHTML = emptyPeople('Войди в аккаунт, чтобы пользоваться друзьями.'); });
+      $('#peopleResults').innerHTML = emptyPeople('Войди в аккаунт, чтобы искать жителей.');
+      if ($('#friendCount')) $('#friendCount').textContent = '0';
+    }
+  });
+
 })();
