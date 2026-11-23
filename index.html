@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="NewGorod — твой город, твоё сообщество.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <title>NewGorod — твой город</title>
+</head>
+<body class="auth-required">
+
+  <section class="auth-screen" id="authScreen">
+    <div class="auth-brand"><span class="brand-mark">N</span><span>New<span class="brand-light">Gorod</span></span></div>
+    <div class="auth-card">
+      <p class="eyebrow">ТВОЁ СООБЩЕСТВО НАЧИНАЕТСЯ ЗДЕСЬ</p>
+      <h1 id="authTitle">С возвращением</h1>
+      <p class="auth-subtitle" id="authSubtitle">Войди, чтобы открыть свой NewGorod.</p>
+      <form id="authForm">
+        <label class="auth-label">Электронная почта<input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" required></label>
+        <label class="auth-label">Пароль<input id="authPassword" type="password" autocomplete="current-password" minlength="8" placeholder="Не менее 8 символов" required></label>
+        <label class="auth-label hidden" id="confirmWrap">Повтори пароль<input id="authConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="Повтори пароль"></label>
+        <button class="primary-btn auth-submit" id="authSubmit" type="submit">Войти <span>↗</span></button>
+      </form>
+      <button class="auth-link" id="forgotPassword">Забыл пароль?</button>
+      <div class="auth-divider"><span>ИЛИ</span></div>
+      <p class="auth-switch" id="authSwitchText">Впервые здесь? <button id="showRegister" type="button">Создать аккаунт</button></p>
+      <p class="auth-message" id="authMessage" role="status"></p>
+      <p class="auth-legal">Продолжая, ты подтверждаешь, что используешь безопасный пароль и не делишься им с другими.</p>
+    </div>
+    <p class="auth-footer">NEWGOROD · ТВОЙ ГОРОД. ТВОИ ИСТОРИИ.</p>
+  </section>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="NewGorod — главная"><span class="brand-mark">N</span><span>New<span class="brand-light">Gorod</span></span></a>
+      <div class="top-actions"><span class="city-pill"><i></i> МОЙ ГОРОД</span><button class="icon-btn" id="logoutButton" aria-label="Выйти">↪</button><button class="icon-btn" id="openMessages" aria-label="Сообщения">✉<b id="msgDot"></b></button></div>
+    </header>
+
+    <main>
+      <section class="view active" id="feedView">
+        <div class="welcome">
+          <div><p class="eyebrow">ПОНЕДЕЛЬНИК МОЖЕТ БЫТЬ ИНТЕРЕСНЫМ</p><h1>Твой город.<br><em>Твои истории.</em></h1><p class="subtext">Место, где встречаются идеи и люди.</p></div>
+          <div class="sun-orb" aria-hidden="true"><span>✳</span></div>
+        </div>
+        <section class="stories-section">
+          <div class="section-heading"><h2>Истории</h2><button class="text-btn" id="addStory">+ Добавить</button></div>
+          <div class="stories" id="stories"></div>
+        </section>
+        <section class="composer card">
+          <div class="composer-top"><div class="avatar avatar-me">Я</div><button class="composer-placeholder" id="focusComposer">Что нового в твоём городе?</button></div>
+          <textarea id="postText" maxlength="500" placeholder="Расскажи, что происходит..." rows="2"></textarea>
+          <div class="composer-bottom"><label class="attach-btn">▧ Фото<input id="postImage" type="file" accept="image/*" hidden></label><span class="muted" id="imageName">До 1,5 МБ</span><button class="primary-btn" id="publishPost">Опубликовать <span>↗</span></button></div>
+        </section>
+        <div class="section-heading feed-heading"><h2>Лента города</h2><span class="live-label"><i></i> СЕЙЧАС</span></div>
+        <div class="feed-tools"><label for="feedSort">Сортировка</label><select id="feedSort"><option value="new">Сначала новые</option><option value="popular">Популярные</option></select><button id="clearTag" type="button">Сбросить фильтр</button></div>
+        <div id="posts" class="post-list"></div>
+      </section>
+
+      <section class="view" id="searchView">
+        <div class="page-title"><p class="eyebrow">ОТКРЫВАЙ НОВОЕ</p><h1>Исследовать</h1><p class="subtext">Ищи публикации и знакомься с демо-профилями.</p></div>
+        <label class="search-box">⌕ <input id="searchInput" placeholder="Поиск по ленте"></label>
+        <div class="topic-row" id="topicFilters"><button type="button" data-tag="">Все</button><button type="button" data-tag="город">#город</button><button type="button" data-tag="идеи">#идеи</button><button type="button" data-tag="события">#события</button><button type="button" data-tag="фото">#фото</button></div>
+        <div id="searchResults" class="post-list"></div>
+        <div class="card note-card"><b>Поиск людей</b><p>В этой стартовой версии доступны только демонстрационные профили. Настоящий поиск пользователей появится после подключения базы данных.</p></div>
+      </section>
+
+      <section class="view" id="messagesView">
+        <div class="page-title"><p class="eyebrow">ЗАЩИТА ПЕРЕПИСКИ</p><h1>Сообщения</h1><p class="subtext">Локальный зашифрованный чат-черновик.</p></div>
+        <div class="card encryption-panel">
+          <div class="encryption-heading"><div><b>🔒 Шифрование AES‑GCM</b><p id="cryptoStatus">Создай парольную фразу, чтобы открыть защищённую переписку.</p></div><span class="secure-badge">AES‑256</span></div>
+          <form id="cryptoUnlockForm" class="crypto-form">
+            <label for="cryptoPassphrase" id="cryptoPassLabel">Парольная фраза</label>
+            <input id="cryptoPassphrase" type="password" minlength="10" maxlength="128" autocomplete="off" placeholder="Не менее 10 символов" required>
+            <div class="crypto-actions"><button class="primary-btn" id="cryptoUnlockBtn">Создать ключ / открыть</button><button class="outline-btn hidden" type="button" id="cryptoLockBtn">Заблокировать</button></div>
+          </form>
+          <p class="crypto-warning">Фраза не сохраняется. Если забудешь её, восстановить сообщения невозможно. Не используй пароль от аккаунта.</p>
+        </div>
+        <div class="card encrypted-chat">
+          <div class="encrypted-chat-head"><div class="avatar avatar-blue">Я</div><div><b>Защищённые заметки</b><p>Только на этом устройстве · демо</p></div></div>
+          <div id="encryptedMessages" class="encrypted-messages"><div class="empty">Сначала разблокируй шифрование.</div></div>
+          <form id="encryptedMessageForm" class="encrypted-message-form">
+            <textarea id="encryptedMessageInput" maxlength="2000" rows="2" placeholder="Сообщение будет зашифровано…" disabled required></textarea>
+            <button class="primary-btn" id="sendEncryptedMessage" disabled>Зашифровать и сохранить ↗</button>
+          </form>
+          <div class="encrypted-footer"><span id="encryptedCount">0 зашифрованных сообщений</span><button class="text-btn danger" id="clearEncryptedMessages" type="button">Удалить переписку</button></div>
+        </div>
+        <div class="card note-card"><b>Важно</b><p>Сообщения шифруются в браузере перед сохранением (AES‑256‑GCM, ключ из парольной фразы через PBKDF2). Это локальное хранилище, не отправка другому пользователю и не полноценный E2E-чат. Для сетевой переписки понадобятся сервер, обмен открытыми ключами и проверка личности собеседника.</p></div>
+      </section>
+
+      <section class="view" id="profileView">
+        <div class="page-title"><p class="eyebrow">ТВОЯ СТРАНИЦА</p><h1>Профиль</h1></div>
+        <div class="profile-hero card"><div class="profile-cover"></div><div class="profile-main"><div class="avatar profile-avatar avatar-me">Я</div><button class="outline-btn" id="editProfile">Изменить профиль</button><h2 id="profileName">Горожанин</h2><p id="profileBio">Исследую свой город и делюсь моментами.</p><div class="stats"><div><b id="postCount">0</b><span>публикаций</span></div><div><b id="followingCount">0</b><span>подписок</span></div><div><b>1</b><span>подписчик</span></div></div></div></div>
+        <div class="section-heading"><h2>Мои публикации</h2></div><div id="myPosts" class="post-list"></div><div class="section-heading"><h2>Избранное</h2></div><div id="savedPosts" class="post-list saved-posts"></div>
+        <div class="card privacy-card"><b>Твои данные</b><p>Пока публикации и профиль хранятся только в этом браузере на этом устройстве. Не публикуй личный адрес, телефон или другие приватные данные.</p><button class="text-btn danger" id="resetData">Сбросить демо-данные</button></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Основная навигация">
+      <button class="nav-item selected" data-view="feedView"><span>⌂</span><small>Лента</small></button>
+      <button class="nav-item" data-view="searchView"><span>⌕</span><small>Поиск</small></button>
+      <button class="nav-item create-nav" id="navCreate" aria-label="Создать публикацию"><span>＋</span></button>
+      <button class="nav-item" data-view="messagesView"><span>✉</span><small>Чаты</small></button>
+      <button class="nav-item" data-view="profileView"><span>◉</span><small>Профиль</small></button>
+    </nav>
+  </div>
+
+  <dialog id="profileDialog" class="modal"><form method="dialog" id="profileForm"><div class="modal-head"><h2>Твой профиль</h2><button class="icon-btn close-modal" aria-label="Закрыть">×</button></div><label>Имя<input id="nameInput" maxlength="30" value="Горожанин"></label><label>О себе<textarea id="bioInput" maxlength="120" rows="3">Исследую свой город и делюсь моментами.</textarea></label><label class="avatar-picker">Фото профиля <input id="avatarInput" type="file" accept="image/*"></label><div class="modal-actions"><button class="outline-btn close-modal">Отмена</button><button class="primary-btn" id="saveProfile">Сохранить</button></div></form></dialog>
+  <dialog id="commentsDialog" class="modal"><div class="modal-head"><h2>Комментарии</h2><button class="icon-btn close-comments">×</button></div><div id="commentsList" class="comments-list"></div><form id="commentForm" class="comment-form"><input id="commentInput" maxlength="240" placeholder="Написать комментарий..." required><button class="primary-btn">Отправить</button></form></dialog>
+  <dialog id="storyDialog" class="modal"><form method="dialog"><div class="modal-head"><h2>Новая история</h2><button class="icon-btn close-modal">×</button></div><p class="subtext">Добавь короткую историю. Она будет видна только в этом браузере.</p><textarea id="storyText" maxlength="120" rows="3" placeholder="Что интересного?"></textarea><div class="modal-actions"><button class="outline-btn close-modal">Отмена</button><button class="primary-btn" id="publishStory">Добавить</button></div></form></dialog>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
