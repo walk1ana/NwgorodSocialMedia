@@ -51,14 +51,13 @@ NEWGOROD — СТАРТОВЫЙ ПРОЕКТ
 в Safari; иногда нужно немного подождать обновления кэша.
 
 НАСТРОЙКА РЕГИСТРАЦИИ И ВХОДА (SUPABASE AUTH)
-1. Открой https://supabase.com/ и создай проект.
-2. В Supabase открой Project Settings → API (или Data API / API Keys).
-3. Скопируй Project URL и anon/public key (не secret/service_role).
-4. На компьютере открой auth.js через Блокнот.
-5. Замени значения:
-   SUPABASE_URL = "ВСТАВЬТЕ_SUPABASE_PROJECT_URL";
-   SUPABASE_ANON_KEY = "ВСТАВЬТЕ_SUPABASE_ANON_KEY";
-   на свои значения, сохрани файл.
+1. Проект Supabase уже создан; Project URL добавлен в auth.js:
+   https://jbefjlupnhkbbjiqfskp.supabase.co
+2. Открой Project Settings → API Keys и скопируй Publishable key
+   (начинается с sb_publishable_). Не используй secret/service_role.
+3. На компьютере открой auth.js через Блокнот.
+4. Замени только значение SUPABASE_ANON_KEY на свой Publishable key,
+   сохрани файл. Project URL менять уже не нужно.
 6. В Supabase открой Authentication → URL Configuration.
    Добавь точный адрес GitHub Pages в Site URL и Redirect URLs,
    например https://ВАШ-ЛОГИН.github.io/newgorod/** .

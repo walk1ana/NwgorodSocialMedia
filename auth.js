@@ -1,8 +1,8 @@
 // NewGorod authentication via Supabase Auth.
 // Paste your Supabase Project URL and anon/public key in the two values below.
 // NEVER put a service_role/secret key in a website or GitHub repository.
-const SUPABASE_URL = "https://jbefjlupnhkbbjiqfskp.supabase.co/rest/v1/";
-const SUPABASE_ANON_KEY = "ВСТАВЬТЕ_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://jbefjlupnhkbbjiqfskp.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_B0AXgkaPQTnINQC-QCHo3w_X6VlBV4m";
 
 const authClientReady = typeof window.supabase !== "undefined"
   && SUPABASE_URL.startsWith("https://")
