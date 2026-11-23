@@ -4,16 +4,15 @@
 
 ## Важно: сначала добавь таблицу в Supabase
 
-Первоначальная миграция создаёт подписки (`follows`), но не дружбу. Для нового раздела нужна отдельная таблица `friend_requests`.
+Первоначальная миграция создаёт подписки (`follows`), но не дружбу. Для нового раздела нужна отдельная таблица `friend_requests`, созданная в Supabase Dashboard отдельным SQL-запросом.
 
 1. Открой Supabase Dashboard -> SQL Editor -> New query.
-2. Открой файл `supabase/migrations/202611240002_friend_requests.sql`.
-3. Скопируй весь SQL в редактор Supabase и нажми Run.
-4. Убедись, что результат — Success.
+2. Выполни SQL для создания таблицы `friend_requests` и её RLS-политик.
+3. Убедись, что результат — Success.
 
 ## Опубликуй сайт
 
-Загрузи файлы проекта в GitHub Pages. Включая обновлённые `index.html`, `styles.css`, `supabase-integration.js`, `sw.js` и новую папку `supabase`.
+Загрузи файлы проекта в GitHub Pages. Включая обновлённые `index.html`, `styles.css`, `supabase-integration.js` и `sw.js`.
 
 ## Проверка
 
