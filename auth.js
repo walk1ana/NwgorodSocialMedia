@@ -101,6 +101,16 @@ forgotButton.addEventListener("click", async () => {
 });
 document.getElementById("showRegister").onclick = () => setAuthMode("register");
 document.getElementById("logoutButton").addEventListener("click", async () => {
+  if (typeof window.prepareNewGorodPushLogout === "function") {
+    try {
+      await window.prepareNewGorodPushLogout();
+    } catch (error) {
+      showAuthMessage("Не удалось отключить уведомления перед выходом. Проверь соединение и попробуй снова.", true);
+      if (typeof toast === "function") toast("Не удалось отключить уведомления перед выходом.");
+      console.error("[NewGorod] Не удалось безопасно отключить push-уведомления", error);
+      return;
+    }
+  }
   if (authClient) await authClient.auth.signOut();
   window.dispatchEvent(new CustomEvent("newgorod-auth", {detail:{user:null}}));
   showAuth();

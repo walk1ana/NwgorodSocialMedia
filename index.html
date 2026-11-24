@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#101827">
   <meta name="description" content="NewGorod — твой город, твоё сообщество.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -121,6 +123,7 @@
         <div class="page-title"><p class="eyebrow">ТВОЯ СТРАНИЦА</p><h1>Профиль</h1></div>
         <div class="profile-hero card"><div class="profile-cover"></div><div class="profile-main"><div class="avatar profile-avatar avatar-me">Я</div><button class="outline-btn" id="editProfile">Изменить профиль</button><h2 id="profileName">Горожанин</h2><p id="profileBio">Исследую свой город и делюсь моментами.</p><div class="stats"><div><b id="postCount">0</b><span>публикаций</span></div><div><b id="followingCount">0</b><span>подписок</span></div><div><b id="friendCount">0</b><span>друзей</span></div></div></div></div>
         <div class="section-heading"><h2>Мои публикации</h2></div><div id="myPosts" class="post-list"></div><div class="section-heading"><h2>Избранное</h2></div><div id="savedPosts" class="post-list saved-posts"></div>
+        <div class="card push-settings"><div><b>Push-уведомления</b><p id="pushStatus" role="status">Уведомления о сообщениях и заявках.</p></div><div class="push-settings-actions"><button class="primary-btn" id="enablePushNotifications" type="button">Включить</button><button class="outline-btn hidden" id="disablePushNotifications" type="button">Выключить</button></div></div>
         <div class="card privacy-card"><b>Твои данные</b><p>Пока публикации и профиль хранятся только в этом браузере на этом устройстве. Не публикуй личный адрес, телефон или другие приватные данные.</p><button class="text-btn danger" id="resetData">Очистить локальные данные</button></div>
       </section>
     </main>
@@ -152,6 +155,7 @@
   <dialog id="storyDialog" class="modal"><form method="dialog"><div class="modal-head"><h2>Новая история</h2><button class="icon-btn close-modal">×</button></div><p class="subtext">Добавь короткую историю. Она будет видна только в этом браузере.</p><textarea id="storyText" maxlength="120" rows="3" placeholder="Что интересного?"></textarea><div class="modal-actions"><button class="outline-btn close-modal">Отмена</button><button class="primary-btn" id="publishStory">Добавить</button></div></form></dialog>
   <div id="toast" class="toast" role="status"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="push-config.js"></script>
   <script src="auth.js"></script>
   <script src="app.js"></script>
   <script src="supabase-integration.js"></script>

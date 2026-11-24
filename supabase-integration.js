@@ -19,6 +19,186 @@
     console.error(`[NewGorod] ${label}`, error);
     toast(`${label}: ${error?.message || 'ошибка сервера'}`);
   };
+  const pushVapidPublicKey = () => window.NWG_PUSH_VAPID_PUBLIC_KEY || '';
+  const hasPushVapidPublicKey = () => /^[A-Za-z0-9_-]{80,100}$/.test(pushVapidPublicKey());
+  const isIosDevice = () => /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isInstalledWebApp = () => navigator.standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches;
+  let pushRegistration = null;
+  let pushSubscription = null;
+  function showPushSetupMessage(message) {
+    $('#pushStatus').textContent = message;
+  }
+  async function refreshPushSettings() {
+    const enableButton = $('#enablePushNotifications');
+    const disableButton = $('#disablePushNotifications');
+    enableButton.disabled = true;
+    if (!uid()) {
+      showPushSetupMessage('Войди в аккаунт, чтобы настроить уведомления.');
+      enableButton.disabled = true;
+      disableButton.hidden = true;
+      return;
+    }
+    if (!window.isSecureContext || !('serviceWorker' in navigator)
+      || !('PushManager' in window) || !('Notification' in window)) {
+      showPushSetupMessage('Этот браузер не поддерживает push-уведомления. Нужен HTTPS и современный браузер.');
+      enableButton.disabled = true;
+      disableButton.hidden = true;
+      return;
+    }
+    if (isIosDevice() && !isInstalledWebApp()) {
+      showPushSetupMessage('На iPhone: Поделиться → «На экран Домой», затем открой NewGorod с иконки.');
+      enableButton.disabled = false;
+      disableButton.hidden = true;
+      return;
+    }
+    if (!hasPushVapidPublicKey()) {
+      showPushSetupMessage('Push ещё не настроен. Добавь публичный VAPID-ключ в push-config.js.');
+      enableButton.disabled = true;
+      disableButton.hidden = true;
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      showPushSetupMessage('Уведомления запрещены. Разреши их в настройках Safari для NewGorod.');
+      enableButton.disabled = true;
+      disableButton.hidden = true;
+      return;
+    }
+    pushRegistration = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.ready;
+    pushSubscription = await pushRegistration.pushManager.getSubscription();
+    let subscriptionSaved = false;
+    if (Notification.permission === 'granted' && pushSubscription) {
+      const { data, error } = await sb().from('push_subscriptions')
+        .select('endpoint')
+        .eq('endpoint', pushSubscription.endpoint)
+        .eq('user_id', uid())
+        .maybeSingle();
+      if (error) {
+        showPushSetupMessage('Не удалось проверить подписку. Проверь SQL ios_push.sql и повтори включение.');
+        enableButton.disabled = false;
+        disableButton.hidden = true;
+        return;
+      }
+      subscriptionSaved = Boolean(data);
+    }
+    const enabled = Notification.permission === 'granted' && Boolean(pushSubscription) && subscriptionSaved;
+    showPushSetupMessage(enabled
+      ? 'Уведомления о сообщениях и заявках включены на этом устройстве.'
+      : pushSubscription && Notification.permission === 'granted'
+        ? 'Подписка создана, но не сохранена. Нажми «Включить», чтобы повторить.'
+        : 'Получай уведомления о новых сообщениях и заявках в друзья.');
+    enableButton.disabled = false;
+    enableButton.hidden = enabled;
+    disableButton.hidden = !enabled;
+  }
+  function base64UrlToBytes(value) {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+    return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
+  }
+  async function enablePushNotifications() {
+    if (isIosDevice() && !isInstalledWebApp()) {
+      showPushSetupMessage('Сначала добавь сайт на экран «Домой» и открой его оттуда.');
+      return;
+    }
+    if (!hasPushVapidPublicKey()) throw new Error('В push-config.js ещё не добавлен публичный VAPID-ключ.');
+    if (!window.isSecureContext || !('serviceWorker' in navigator)
+      || !('PushManager' in window) || !('Notification' in window)) {
+      throw new Error('Нужны HTTPS, Service Worker и браузер с поддержкой Web Push.');
+    }
+    if (!pushRegistration) throw new Error('Service Worker ещё загружается. Попробуй через секунду.');
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('Разреши уведомления в системном запросе браузера.');
+    const subscriptionPromise = pushSubscription
+      ? Promise.resolve(pushSubscription)
+      : pushRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: base64UrlToBytes(pushVapidPublicKey())
+      });
+    const userPromise = ensureRemoteUser();
+    const [subscription, user] = await Promise.all([subscriptionPromise, userPromise]);
+    pushSubscription = subscription;
+    const { error } = await sb().from('push_subscriptions').upsert({
+      endpoint: subscription.endpoint,
+      user_id: user.id,
+      subscription: subscription.toJSON(),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'endpoint' });
+    if (error) throw error;
+    await refreshPushSettings();
+    toast('Push-уведомления включены.');
+  }
+  async function disablePushNotifications() {
+    const user = await ensureRemoteUser();
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) {
+      await refreshPushSettings();
+      return;
+    }
+    const { error } = await sb().from('push_subscriptions')
+      .delete()
+      .eq('endpoint', subscription.endpoint)
+      .eq('user_id', user.id);
+    let localRemovalError = null;
+    try {
+      await subscription.unsubscribe();
+    } catch (unsubscribeError) {
+      localRemovalError = unsubscribeError;
+    }
+    if (error && localRemovalError) throw error;
+    pushSubscription = null;
+    await refreshPushSettings();
+    if (error) {
+      console.error('[NewGorod] Удалили push-подписку только на этом устройстве', error);
+      toast('Уведомления выключены на этом устройстве; серверная запись осталась.');
+    } else if (localRemovalError) {
+      throw localRemovalError;
+    } else {
+      toast('Push-уведомления выключены.');
+    }
+  }
+  window.prepareNewGorodPushLogout = async () => {
+    if (!('serviceWorker' in navigator) || !sb()) return;
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) return;
+    let remoteRemovalError = null;
+    try {
+      const { data: { user }, error: userError } = await sb().auth.getUser();
+      if (userError) throw userError;
+      if (user) {
+        const { error } = await sb().from('push_subscriptions')
+          .delete()
+          .eq('endpoint', subscription.endpoint)
+          .eq('user_id', user.id);
+        if (error) throw error;
+      }
+    } catch (error) {
+      remoteRemovalError = error;
+    }
+    let localRemovalSucceeded = false;
+    try {
+      await subscription.unsubscribe();
+      localRemovalSucceeded = true;
+      pushSubscription = null;
+    } catch (error) {
+      console.error('[NewGorod] Не удалось удалить локальную push-подписку', error);
+    }
+    if (remoteRemovalError && !localRemovalSucceeded) throw remoteRemovalError;
+  };
+  async function sendPushNotification(type, eventId) {
+    if (!hasPushVapidPublicKey() || !uid()) return;
+    const { error } = await sb().functions.invoke('send-push', {
+      body: { type, eventId }
+    });
+    if (error) console.error('[NewGorod] Не удалось отправить push-уведомление', error);
+  }
+  function notifyPush(type, eventId) {
+    sendPushNotification(type, eventId).catch(error => {
+      console.error('[NewGorod] Не удалось отправить push-уведомление', error);
+    });
+  }
   const publicUrl = (bucket, path) => {
     if (!path) return '';
     return sb().storage.from(bucket).getPublicUrl(path).data.publicUrl;
@@ -402,6 +582,7 @@
           });
           if (error) throw error;
           if (updated !== 'accepted') throw new Error('Встречная заявка не обновилась. Обнови список.');
+          notifyPush('friend_accepted', active.id);
           toast('Встречная заявка принята. Теперь вы друзья!');
         } else {
           // Rejected rows are outside the active-pair index; remove old history
@@ -411,7 +592,10 @@
             const { error: deleteError } = await sb().from('friend_requests').delete().in('id', rejectedIds);
             if (deleteError) throw deleteError;
           }
-          const { error } = await sb().from('friend_requests').insert({ sender_id: myId, recipient_id: targetId });
+          const { data: request, error } = await sb().from('friend_requests')
+            .insert({ sender_id: myId, recipient_id: targetId })
+            .select('id')
+            .single();
           if (error) {
             // A concurrent/reciprocal click may have created the pair after our read.
             if (error.code === '23505') {
@@ -421,6 +605,7 @@
             }
             throw error;
           }
+          notifyPush('friend_request', request.id);
           toast('Заявка в друзья отправлена.');
         }
       } else if (action === 'accept' || action === 'reject') {
@@ -442,6 +627,7 @@
           if (error) throw error;
           if (updated !== (action === 'accept' ? 'accepted' : 'rejected'))
             throw new Error('Заявка не обновилась. Обнови список и попробуй ещё раз.');
+          if (action === 'accept') notifyPush('friend_accepted', requestId);
           toast(action === 'accept' ? 'Теперь вы друзья!' : 'Заявка отклонена.');
         }
       } else if (action === 'cancel' || action === 'remove') {
@@ -931,6 +1117,7 @@
         body
       }).select('id,sender_id,body,created_at').single();
       if (error) throw error;
+      notifyPush('message', message.id);
       if (!chatMessages.some(item => item.id === message.id)) {
         chatMessages.push(message);
         renderDirectChatMessages();
@@ -965,8 +1152,53 @@
   });
   document.querySelector('[data-view="messagesView"]').addEventListener('click', loadChatFriends);
   $('#openMessages').addEventListener('click', loadChatFriends);
+  $('#enablePushNotifications').addEventListener('click', async () => {
+    const button = $('#enablePushNotifications');
+    button.disabled = true;
+    try {
+      await enablePushNotifications();
+    } catch (error) {
+      reportError('Не удалось включить уведомления', error);
+    } finally {
+      button.disabled = false;
+      refreshPushSettings().catch(error => {
+        console.error('[NewGorod] Не удалось проверить push-подписку', error);
+      });
+    }
+  });
+  $('#disablePushNotifications').addEventListener('click', async () => {
+    const button = $('#disablePushNotifications');
+    button.disabled = true;
+    try {
+      await disablePushNotifications();
+    } catch (error) {
+      reportError('Не удалось выключить уведомления', error);
+    } finally {
+      button.disabled = false;
+      refreshPushSettings().catch(error => {
+        console.error('[NewGorod] Не удалось проверить push-подписку', error);
+      });
+    }
+  });
+  function openPushTarget() {
+    const params = new URLSearchParams(location.search);
+    const view = params.get('view');
+    if (!['messagesView', 'friendsView'].includes(view)) return;
+    switchView(view);
+    if (view === 'messagesView') {
+      const friendId = params.get('friend');
+      const isFriend = friendRows.some(row => row.status === 'accepted' &&
+        ((row.sender_id === uid() && row.recipient_id === friendId)
+          || (row.recipient_id === uid() && row.sender_id === friendId)));
+      if (friendId && isFriend) openDirectChat(friendId);
+    }
+    history.replaceState(null, '', location.pathname);
+  }
   window.addEventListener('newgorod-auth', event => {
     remoteUser = event.detail?.user || null;
+    refreshPushSettings().catch(error => {
+      console.error('[NewGorod] Не удалось проверить push-подписку', error);
+    });
     if (activeCall) finishCall(false);
     closeFriendCallChannels().catch(error => reportError('Не удалось закрыть каналы звонков', error));
     friendRows = [];
@@ -983,7 +1215,11 @@
     updateCallLaunchButtons();
     $('#directChatMessages').innerHTML = emptyPeople('Здесь появятся сообщения.');
     renderChatFriends();
-    if (remoteUser) loadFriendRows().catch(error => reportError('Не удалось загрузить друзей', error));
+    if (remoteUser) {
+      loadFriendRows()
+        .then(openPushTarget)
+        .catch(error => reportError('Не удалось загрузить друзей', error));
+    }
     else {
       ['incomingRequests','outgoingRequests','friendsList'].forEach(id => { const el = $('#' + id); if (el) el.innerHTML = emptyPeople('Войди в аккаунт, чтобы пользоваться друзьями.'); });
       $('#peopleResults').innerHTML = emptyPeople('Войди в аккаунт, чтобы искать жителей.');

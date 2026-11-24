@@ -1,0 +1,1 @@
+window.NWG_PUSH_VAPID_PUBLIC_KEY = "";

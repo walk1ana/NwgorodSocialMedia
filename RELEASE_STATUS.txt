@@ -24,3 +24,11 @@ Audio/video calls:
 - Enable private Realtime channels and disable public access in Supabase Realtime settings.
 - Both users must be online, signed in, and allow microphone/camera access over HTTPS.
 - This prototype uses a public STUN server only; some networks will require a TURN server.
+
+iOS push notifications:
+- iPhone/iPad requires iOS/iPadOS 16.4+ and NewGorod added to the Home Screen, then opened from its icon.
+- Run `ios_push.sql` in Supabase SQL Editor.
+- Generate VAPID keys with `npx --yes web-push generate-vapid-keys`. Keep the private key out of Git; set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` as Supabase Function secrets.
+- With the Supabase CLI logged in, run `supabase secrets set VAPID_PUBLIC_KEY=<public> VAPID_PRIVATE_KEY=<private> VAPID_SUBJECT=mailto:admin@example.com --project-ref jbefjlupnhkbbjiqfskp`.
+- Copy only the public key into `push-config.js`, then deploy with `supabase functions deploy send-push --project-ref jbefjlupnhkbbjiqfskp`.
+- New messages, friend requests, and accepted requests can notify subscribed devices. Live delivery requires the SQL, keys, Edge Function, and user permission to be configured.
