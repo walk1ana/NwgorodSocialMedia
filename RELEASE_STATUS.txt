@@ -1,18 +1,20 @@
-NewGorod — friends feature release
+NewGorod — friends and direct messages
 
 Added:
 - Dedicated Friends navigation page.
 - Search registered profiles by display name.
 - Send friend requests.
 - Incoming and outgoing request lists.
-- Accept and reject requests.
+- Atomic accept and reject request handling.
 - Mutual friends list and remove-friend action.
 - Friend count in the profile.
-- Supabase RLS migration for friend_requests.
+- Direct messages with accepted friends and Supabase Realtime updates.
+- Supabase RLS migrations for friend requests and private chats.
 
 Required before use:
-1. Run supabase/migrations/202611240002_friend_requests.sql in Supabase SQL Editor.
-2. Deploy the complete project folder to GitHub Pages.
-3. Test with two separate accounts.
+1. Ensure the existing Supabase project has the `public.profiles` table.
+2. Run `supabase/migrations/202611240002_friend_requests.sql` and then `supabase/migrations/202611250001_friend_messages.sql` in Supabase SQL Editor.
+3. Deploy the complete project folder to GitHub Pages.
+4. Test requests and messaging with two separate accounts.
 
-The feature has been syntax-checked locally. It has not been tested against the user's live Supabase project or in a real browser session. The friends UI depends on the second SQL migration.
+JavaScript syntax, unique HTML ids and patch whitespace checks pass. The changes have not been tested against the user's live Supabase project or in a real browser session. The user must run the migrations and deploy the updated files before the new functionality is available online.

@@ -260,6 +260,11 @@
   let friendRows = [];
   let peopleSearchSequence = 0;
   const friendProfileCache = new Map();
+  let activeConversationId = null;
+  let activeChatFriendId = null;
+  let chatRealtimeChannel = null;
+  let chatOpenSequence = 0;
+  let chatMessages = [];
   const friendName = p => p?.display_name || 'Горожанин';
   const friendAvatar = p => publicUrl('avatars', p?.avatar_path);
   const friendPersonCard = (profile, actionMarkup = '', subtitle = '') => {
@@ -312,6 +317,7 @@
     const count = $('#friendCount');
     if (count) count.textContent = String(friends.length);
     renderPeopleSearch($('#peopleSearch').value);
+    renderChatFriends();
   }
   async function renderPeopleSearch(query) {
     const root = $('#peopleResults');
@@ -377,9 +383,12 @@
         } else if (active?.status === 'pending' && active.sender_id === myId) {
           toast('Заявка уже отправлена.');
         } else if (active?.status === 'pending' && active.recipient_id === myId) {
-          const { error } = await sb().from('friend_requests').update({ status: 'accepted' })
-            .eq('id', active.id).eq('recipient_id', myId).eq('status', 'pending');
+          const { data: updated, error } = await sb().rpc('respond_to_friend_request', {
+            p_request_id: active.id,
+            p_action: 'accept'
+          });
           if (error) throw error;
+          if (updated !== 'accepted') throw new Error('Встречная заявка не обновилась. Обнови список.');
           toast('Встречная заявка принята. Теперь вы друзья!');
         } else {
           // Rejected rows are outside the active-pair index; remove old history
@@ -413,12 +422,13 @@
         } else if (current.status !== 'pending') {
           throw new Error('Эта заявка уже обработана. Обнови список.');
         } else {
-          const { data: updated, error } = await sb().from('friend_requests').update({
-            status: action === 'accept' ? 'accepted' : 'rejected'
-          }).eq('id', requestId).eq('recipient_id', myId).eq('status', 'pending')
-            .select('id').maybeSingle();
+          const { data: updated, error } = await sb().rpc('respond_to_friend_request', {
+            p_request_id: requestId,
+            p_action: action
+          });
           if (error) throw error;
-          if (!updated) throw new Error('Заявка уже обработана другим действием. Обнови список.');
+          if (updated !== (action === 'accept' ? 'accepted' : 'rejected'))
+            throw new Error('Заявка не обновилась. Обнови список и попробуй ещё раз.');
           toast(action === 'accept' ? 'Теперь вы друзья!' : 'Заявка отклонена.');
         }
       } else if (action === 'cancel' || action === 'remove') {
@@ -443,6 +453,136 @@
       button.disabled = false;
     }
   }
+  function renderChatFriends() {
+    const root = $('#chatFriends');
+    if (!root) return;
+    if (!uid()) {
+      root.innerHTML = emptyPeople('Войди в аккаунт, чтобы открыть чаты.');
+      return;
+    }
+    const friendIds = [...new Set(friendRows
+      .filter(row => row.status === 'accepted')
+      .map(row => row.sender_id === uid() ? row.recipient_id : row.sender_id))];
+    root.innerHTML = friendIds.length
+      ? friendIds.map(id => {
+        const profile = friendProfileCache.get(id);
+        if (!profile) return '';
+        return friendPersonCard(profile,
+          `<button class="primary-btn" data-chat-user="${esc(id)}">${id === activeChatFriendId ? 'Открыта' : 'Написать'}</button>`,
+          'Друг');
+      }).join('')
+      : emptyPeople('Пока нет друзей. Прими заявку или найди жителя в разделе «Друзья».');
+  }
+  async function closeChatSubscription() {
+    if (chatRealtimeChannel && sb()) await sb().removeChannel(chatRealtimeChannel);
+    chatRealtimeChannel = null;
+  }
+  function renderDirectChatMessages() {
+    const root = $('#directChatMessages');
+    if (!root) return;
+    root.innerHTML = chatMessages.length ? chatMessages.map(message => {
+      const own = message.sender_id === uid();
+      const time = new Date(message.created_at).toLocaleString();
+      return `<article class="direct-message${own ? ' own' : ''}"><div class="direct-message-meta">${own ? 'Ты' : esc(friendName(friendProfileCache.get(activeChatFriendId)))} · ${esc(time)}</div><p>${esc(message.body)}</p></article>`;
+    }).join('') : emptyPeople('Сообщений пока нет. Напиши первым!');
+    root.scrollTop = root.scrollHeight;
+  }
+  async function openDirectChat(friendId) {
+    const sequence = ++chatOpenSequence;
+    activeConversationId = null;
+    activeChatFriendId = friendId;
+    chatMessages = [];
+    $('#directChatName').textContent = friendName(friendProfileCache.get(friendId));
+    $('#directChatStatus').textContent = 'Открываем переписку…';
+    $('#directChatInput').disabled = true;
+    $('#sendDirectMessage').disabled = true;
+    $('#directChatMessages').innerHTML = emptyPeople('Загрузка переписки…');
+    renderChatFriends();
+    try {
+      await closeChatSubscription();
+      const { data: conversationId, error: openError } = await sb().rpc('open_friend_conversation', {
+        p_friend_id: friendId
+      });
+      if (openError) throw openError;
+      if (sequence !== chatOpenSequence) return;
+      if (typeof conversationId !== 'string' || !conversationId) throw new Error('Сервер не вернул переписку.');
+      const { data: messages, error: messagesError } = await sb().from('messages')
+        .select('id,sender_id,body,created_at')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+        .limit(200);
+      if (messagesError) throw messagesError;
+      if (sequence !== chatOpenSequence) return;
+      activeConversationId = conversationId;
+      chatMessages = messages || [];
+      renderDirectChatMessages();
+      $('#directChatStatus').textContent = 'Сообщения обновляются в реальном времени.';
+      $('#directChatInput').disabled = false;
+      $('#sendDirectMessage').disabled = false;
+      chatRealtimeChannel = sb().channel(`friend-chat-${conversationId}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        }, payload => {
+          if (sequence !== chatOpenSequence || chatMessages.some(message => message.id === payload.new.id)) return;
+          chatMessages.push(payload.new);
+          renderDirectChatMessages();
+        })
+        .subscribe(status => {
+          if (sequence !== chatOpenSequence) return;
+          if (status === 'SUBSCRIBED') {
+            $('#directChatStatus').textContent = 'Онлайн — сообщения обновляются сразу.';
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            $('#directChatStatus').textContent = 'Нет связи в реальном времени. Переоткрой чат, чтобы обновить сообщения.';
+            toast('Не удалось подключить обновление чата. Обнови страницу.');
+          }
+        });
+    } catch (error) {
+      if (sequence !== chatOpenSequence) return;
+      $('#directChatStatus').textContent = 'Не удалось открыть переписку.';
+      $('#directChatMessages').innerHTML = emptyPeople(error.message || 'Ошибка сервера.');
+      reportError('Не удалось открыть чат', error);
+    }
+  }
+  $('#chatFriends').addEventListener('click', event => {
+    const button = event.target.closest('[data-chat-user]');
+    if (button && !button.disabled) openDirectChat(button.dataset.chatUser);
+  });
+  $('#directChatForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const body = $('#directChatInput').value.trim();
+    if (!body || !activeConversationId || !uid()) return;
+    const button = $('#sendDirectMessage');
+    button.disabled = true;
+    try {
+      const { data: message, error } = await sb().from('messages').insert({
+        conversation_id: activeConversationId,
+        sender_id: uid(),
+        body
+      }).select('id,sender_id,body,created_at').single();
+      if (error) throw error;
+      if (!chatMessages.some(item => item.id === message.id)) {
+        chatMessages.push(message);
+        renderDirectChatMessages();
+      }
+      $('#directChatInput').value = '';
+    } catch (error) {
+      reportError('Не удалось отправить сообщение', error);
+    } finally {
+      button.disabled = !activeConversationId;
+    }
+  });
+  async function loadChatFriends() {
+    try {
+      await loadFriendRows();
+      renderChatFriends();
+    } catch (error) {
+      $('#chatFriends').innerHTML = emptyPeople('Не удалось загрузить друзей.');
+      reportError('Не удалось загрузить чаты', error);
+    }
+  }
   $('#peopleSearch').addEventListener('input', event => renderPeopleSearch(event.target.value));
   $('#refreshFriends').addEventListener('click', async () => {
     try { await loadFriendRows(); toast('Список друзей обновлён.'); }
@@ -455,10 +595,23 @@
   document.querySelector('[data-view="friendsView"]').addEventListener('click', () => {
     loadFriendRows().catch(error => reportError('Не удалось загрузить друзей', error));
   });
+  document.querySelector('[data-view="messagesView"]').addEventListener('click', loadChatFriends);
+  $('#openMessages').addEventListener('click', loadChatFriends);
   window.addEventListener('newgorod-auth', event => {
     remoteUser = event.detail?.user || null;
     friendRows = [];
     friendProfileCache.clear();
+    chatOpenSequence++;
+    activeConversationId = null;
+    activeChatFriendId = null;
+    chatMessages = [];
+    closeChatSubscription().catch(error => reportError('Не удалось закрыть старый чат', error));
+    $('#directChatName').textContent = 'Выбери друга';
+    $('#directChatStatus').textContent = 'Открой переписку из списка друзей.';
+    $('#directChatInput').disabled = true;
+    $('#sendDirectMessage').disabled = true;
+    $('#directChatMessages').innerHTML = emptyPeople('Здесь появятся сообщения.');
+    renderChatFriends();
     if (remoteUser) loadFriendRows().catch(error => reportError('Не удалось загрузить друзей', error));
     else {
       ['incomingRequests','outgoingRequests','friendsList'].forEach(id => { const el = $('#' + id); if (el) el.innerHTML = emptyPeople('Войди в аккаунт, чтобы пользоваться друзьями.'); });
