@@ -5,6 +5,16 @@
   let postImageFile = null;
   const sb = () => (typeof authClient !== 'undefined' ? authClient : null);
   const uid = () => remoteUser?.id || null;
+  async function ensureRemoteUser() {
+    if (!sb()) throw new Error('Supabase не подключён.');
+    // Всегда сверяем пользователя с текущей Supabase-сессией:
+    // remoteUser мог остаться пустым или устареть после перезагрузки/смены аккаунта.
+    const { data, error } = await sb().auth.getUser();
+    if (error) throw error;
+    remoteUser = data?.user || null;
+    if (!remoteUser?.id) throw new Error('Сессия не найдена. Войди в аккаунт заново.');
+    return remoteUser;
+  }
   const reportError = (label, error) => {
     console.error(`[NewGorod] ${label}`, error);
     toast(`${label}: ${error?.message || 'ошибка сервера'}`);
@@ -181,15 +191,31 @@
   };
   $('#saveProfile').onclick = async e => {
     e.preventDefault();
+    const button = $('#saveProfile');
+    if (button) button.disabled = true;
     try {
+      const user = await ensureRemoteUser();
+      const display_name = $('#nameInput').value.trim();
+      const bio = $('#bioInput').value.trim();
+      if (!display_name) throw new Error('Ник не может быть пустым.');
+      if (display_name.length > 40) throw new Error('Ник должен содержать не более 40 символов.');
+      if (bio.length > 300) throw new Error('Описание должно содержать не более 300 символов.');
       let avatar_path;
       if (avatarFile) avatar_path = await uploadMedia('avatars', avatarFile);
-      const patch = { display_name: $('#nameInput').value.trim() || 'Горожанин', bio: $('#bioInput').value.trim() };
+      const patch = { id: user.id, display_name, bio, updated_at: new Date().toISOString() };
       if (avatar_path) patch.avatar_path = avatar_path;
-      const { error } = await sb().from('profiles').update(patch).eq('id', uid());
+      // upsert also repairs a missing profile row; id always comes from Auth UUID.
+      const { error } = await sb().from('profiles').upsert(patch, { onConflict: 'id' });
       if (error) throw error;
-      avatarFile = null; $('#profileDialog').close(); await refresh(); toast('Профиль сохранён');
-    } catch (err) { reportError('Не удалось сохранить профиль', err); }
+      avatarFile = null;
+      $('#profileDialog').close();
+      await refresh();
+      toast('Ник и профиль сохранены');
+    } catch (err) {
+      reportError('Не удалось сохранить ник', err);
+    } finally {
+      if (button) button.disabled = false;
+    }
   };
   $('#postImage').onchange = e => {
     const f = e.target.files[0]; if (!f) return;
@@ -254,7 +280,12 @@
     return unique.map(id => friendProfileCache.get(id)).filter(Boolean);
   }
   async function loadFriendRows() {
-    if (!uid() || !sb()) return;
+    if (!sb()) throw new Error('Supabase не подключён.');
+    await ensureRemoteUser();
+    if (!uid()) {
+      ['incomingRequests','outgoingRequests','friendsList'].forEach(id => { const el = $('#' + id); if (el) el.innerHTML = emptyPeople('Войди в аккаунт, чтобы пользоваться друзьями.'); });
+      return;
+    }
     const { data: rows, error } = await sb().from('friend_requests').select('*')
       .or(`sender_id.eq.${uid()},recipient_id.eq.${uid()}`)
       .order('created_at', { ascending: false }).limit(500);
@@ -290,10 +321,15 @@
     if (q.length < 2) { root.innerHTML = emptyPeople('Введи хотя бы 2 символа.'); return; }
     root.innerHTML = emptyPeople('Ищем жителей…');
     try {
+      if (!sb()) throw new Error('Supabase не подключён.');
+      await ensureRemoteUser();
+      if (!uid()) throw new Error('Сначала войди в аккаунт.');
       const safeQuery = q.replace(/[%,_]/g, ' ').trim();
-      const { data: profiles, error } = await sb().from('profiles')
+      let profileQuery = sb().from('profiles')
         .select('id,username,display_name,bio,avatar_path')
-        .ilike('display_name', `%${safeQuery}%`).neq('id', uid())
+        .ilike('display_name', `%${safeQuery}%`);
+      if (uid()) profileQuery = profileQuery.neq('id', uid());
+      const { data: profiles, error } = await profileQuery
         .order('display_name', { ascending: true }).limit(30);
       if (error) throw error;
       if (seq !== peopleSearchSequence) return;
@@ -322,6 +358,8 @@
     const targetId = button.dataset.userId;
     button.disabled = true;
     try {
+      await ensureRemoteUser();
+      if (!uid()) throw new Error('Сначала войди в аккаунт.');
       if (action === 'send') {
         const { error } = await sb().from('friend_requests').insert({ sender_id: uid(), recipient_id: targetId });
         if (error) throw error;
