@@ -97,17 +97,23 @@
     root.querySelectorAll('[data-like]').forEach(b => b.onclick = async () => {
       const postId = b.dataset.like;
       const post = data.posts.find(p => p.id === postId);
-      if (!post || !uid()) return;
+      if (!post) return;
+      b.disabled = true;
       try {
+        const user = await ensureRemoteUser();
         if (post.liked) {
-          const { error } = await sb().from('likes').delete().eq('post_id', postId).eq('user_id', uid());
+          const { error } = await sb().from('likes').delete().eq('post_id', postId).eq('user_id', user.id);
           if (error) throw error;
         } else {
-          const { error } = await sb().from('likes').insert({ post_id: postId, user_id: uid() });
+          const { error } = await sb().from('likes').insert({ post_id: postId, user_id: user.id });
           if (error) throw error;
         }
         await refresh();
-      } catch (e) { reportError('Не удалось изменить отметку «Нравится»', e); }
+      } catch (e) {
+        reportError('Не удалось изменить отметку «Нравится»', e);
+      } finally {
+        b.disabled = false;
+      }
     });
     root.querySelectorAll('[data-comments]').forEach(b => b.onclick = () => openComments(b.dataset.comments));
     root.querySelectorAll('[data-follow]').forEach(b => b.onclick = async () => {
@@ -178,7 +184,8 @@
     e.preventDefault();
     const value = $('#commentInput').value.trim(); if (!value || !activeCommentPost) return;
     try {
-      const { error } = await sb().from('comments').insert({ post_id: activeCommentPost, author_id: uid(), body: value });
+      const user = await ensureRemoteUser();
+      const { error } = await sb().from('comments').insert({ post_id: activeCommentPost, author_id: user.id, body: value });
       if (error) throw error;
       $('#commentInput').value = ''; await refresh(); openComments(activeCommentPost);
     } catch (err) { reportError('Не удалось добавить комментарий', err); }
@@ -619,5 +626,15 @@
       if ($('#friendCount')) $('#friendCount').textContent = '0';
     }
   });
+
+  async function restoreInitialSession() {
+    if (!sb()) return;
+    const { data: sessionData, error } = await sb().auth.getUser();
+    if (error) throw error;
+    if (sessionData?.user && uid() !== sessionData.user.id) {
+      window.dispatchEvent(new CustomEvent('newgorod-auth', { detail: { user: sessionData.user } }));
+    }
+  }
+  restoreInitialSession().catch(error => reportError('Не удалось восстановить сессию', error));
 
 })();
