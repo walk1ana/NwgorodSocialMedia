@@ -358,22 +358,85 @@
     const targetId = button.dataset.userId;
     button.disabled = true;
     try {
-      await ensureRemoteUser();
-      if (!uid()) throw new Error('Сначала войди в аккаунт.');
+      const user = await ensureRemoteUser();
+      const myId = user.id;
+      if (!myId) throw new Error('Сначала войди в аккаунт.');
+
       if (action === 'send') {
-        const { error } = await sb().from('friend_requests').insert({ sender_id: uid(), recipient_id: targetId });
-        if (error) throw error;
-        toast('Заявка в друзья отправлена.');
+        if (!targetId || targetId === myId) throw new Error('Некорректный пользователь.');
+        // Read both directions first so repeated clicks and reciprocal requests
+        // never attempt to create a second active pair.
+        const { data: pairRows, error: pairError } = await sb().from('friend_requests')
+          .select('*')
+          .or(`and(sender_id.eq.${myId},recipient_id.eq.${targetId}),and(sender_id.eq.${targetId},recipient_id.eq.${myId})`)
+          .order('created_at', { ascending: false });
+        if (pairError) throw pairError;
+        const active = (pairRows || []).find(row => row.status === 'accepted' || row.status === 'pending');
+        if (active?.status === 'accepted') {
+          toast('Вы уже друзья.');
+        } else if (active?.status === 'pending' && active.sender_id === myId) {
+          toast('Заявка уже отправлена.');
+        } else if (active?.status === 'pending' && active.recipient_id === myId) {
+          const { error } = await sb().from('friend_requests').update({ status: 'accepted' })
+            .eq('id', active.id).eq('recipient_id', myId).eq('status', 'pending');
+          if (error) throw error;
+          toast('Встречная заявка принята. Теперь вы друзья!');
+        } else {
+          // Rejected rows are outside the active-pair index; remove old history
+          // for this pair before creating a fresh pending request.
+          const rejectedIds = (pairRows || []).filter(row => row.status === 'rejected').map(row => row.id);
+          if (rejectedIds.length) {
+            const { error: deleteError } = await sb().from('friend_requests').delete().in('id', rejectedIds);
+            if (deleteError) throw deleteError;
+          }
+          const { error } = await sb().from('friend_requests').insert({ sender_id: myId, recipient_id: targetId });
+          if (error) {
+            // A concurrent/reciprocal click may have created the pair after our read.
+            if (error.code === '23505') {
+              await loadFriendRows();
+              toast('Заявка или дружба уже существует. Список обновлён.');
+              return;
+            }
+            throw error;
+          }
+          toast('Заявка в друзья отправлена.');
+        }
       } else if (action === 'accept' || action === 'reject') {
-        const { error } = await sb().from('friend_requests').update({ status: action === 'accept' ? 'accepted' : 'rejected' })
-          .eq('id', requestId).eq('recipient_id', uid()).eq('status', 'pending');
-        if (error) throw error;
-        toast(action === 'accept' ? 'Теперь вы друзья!' : 'Заявка отклонена.');
+        if (!requestId) throw new Error('Не найдена заявка. Обнови список.');
+        const { data: current, error: readError } = await sb().from('friend_requests')
+          .select('id,sender_id,recipient_id,status').eq('id', requestId).maybeSingle();
+        if (readError) throw readError;
+        if (!current) throw new Error('Заявка уже удалена. Обнови список.');
+        if (current.recipient_id !== myId) throw new Error('Только получатель может обработать эту заявку.');
+        if (current.status === 'accepted') {
+          toast('Вы уже друзья.');
+        } else if (current.status !== 'pending') {
+          throw new Error('Эта заявка уже обработана. Обнови список.');
+        } else {
+          const { data: updated, error } = await sb().from('friend_requests').update({
+            status: action === 'accept' ? 'accepted' : 'rejected'
+          }).eq('id', requestId).eq('recipient_id', myId).eq('status', 'pending')
+            .select('id').maybeSingle();
+          if (error) throw error;
+          if (!updated) throw new Error('Заявка уже обработана другим действием. Обнови список.');
+          toast(action === 'accept' ? 'Теперь вы друзья!' : 'Заявка отклонена.');
+        }
       } else if (action === 'cancel' || action === 'remove') {
-        const { error } = await sb().from('friend_requests').delete().eq('id', requestId);
-        if (error) throw error;
-        toast(action === 'remove' ? 'Пользователь удалён из друзей.' : 'Заявка отменена.');
+        if (!requestId) throw new Error('Не найдена запись. Обнови список.');
+        const { data: current, error: readError } = await sb().from('friend_requests')
+          .select('id,sender_id,recipient_id,status').eq('id', requestId).maybeSingle();
+        if (readError) throw readError;
+        if (!current) {
+          toast('Запись уже удалена.');
+        } else {
+          if (current.sender_id !== myId && current.recipient_id !== myId)
+            throw new Error('Нет доступа к этой записи.');
+          const { error } = await sb().from('friend_requests').delete().eq('id', requestId);
+          if (error) throw error;
+          toast(action === 'remove' ? 'Пользователь удалён из друзей.' : 'Заявка отменена.');
+        }
       }
+
       await loadFriendRows();
     } catch (error) {
       reportError('Не удалось выполнить действие с друзьями', error);
