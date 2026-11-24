@@ -17,4 +17,10 @@ Required before use:
 3. Deploy the complete project folder to GitHub Pages.
 4. Test requests and messaging with two separate accounts.
 
-JavaScript syntax, unique HTML ids and patch whitespace checks pass. The changes have not been tested against the user's live Supabase project or in a real browser session. The user must run the migrations and deploy the updated files before the new functionality is available online.
+JavaScript syntax, unique HTML ids, patch whitespace checks and local browser rendering are verified. The changes have not been tested against the live Supabase project or with two accounts; run the applicable SQL and deploy the updated files before use.
+
+Audio/video calls:
+- Run `friend_calls.sql` in Supabase SQL Editor after the `public.friend_requests` table exists.
+- Enable private Realtime channels and disable public access in Supabase Realtime settings.
+- Both users must be online, signed in, and allow microphone/camera access over HTTPS.
+- This prototype uses a public STUN server only; some networks will require a TURN server.

@@ -84,7 +84,7 @@
         <div class="page-title"><p class="eyebrow">ОБЩАЙСЯ С ДРУЗЬЯМИ</p><h1>Чаты</h1><p class="subtext">Личные сообщения доступны после принятия заявки в друзья.</p></div>
         <div id="chatFriends" class="people-list"><div class="empty">Загрузка друзей…</div></div>
         <section id="directChat" class="card direct-chat" aria-live="polite">
-          <div class="direct-chat-head"><div class="avatar avatar-blue">✉</div><div><b id="directChatName">Выбери друга</b><p id="directChatStatus">Открой переписку из списка друзей.</p></div></div>
+          <div class="direct-chat-head"><div class="avatar avatar-blue">✉</div><div class="direct-chat-title"><b id="directChatName">Выбери друга</b><p id="directChatStatus">Открой переписку из списка друзей.</p></div><div class="direct-chat-call-actions"><button class="outline-btn" id="startAudioCall" type="button" disabled>☎ Аудио</button><button class="outline-btn" id="startVideoCall" type="button" disabled>▣ Видео</button></div></div>
           <div id="directChatMessages" class="direct-chat-messages"><div class="empty">Здесь появятся сообщения.</div></div>
           <form id="directChatForm" class="direct-chat-form">
             <textarea id="directChatInput" maxlength="2000" rows="2" placeholder="Напиши сообщение…" disabled required></textarea>
@@ -137,6 +137,18 @@
 
   <dialog id="profileDialog" class="modal"><form method="dialog" id="profileForm"><div class="modal-head"><h2>Твой профиль</h2><button class="icon-btn close-modal" aria-label="Закрыть">×</button></div><label>Имя<input id="nameInput" maxlength="30" value="Горожанин"></label><label>О себе<textarea id="bioInput" maxlength="120" rows="3">Исследую свой город и делюсь моментами.</textarea></label><label class="avatar-picker">Фото профиля <input id="avatarInput" type="file" accept="image/*"></label><div class="modal-actions"><button class="outline-btn close-modal">Отмена</button><button class="primary-btn" id="saveProfile">Сохранить</button></div></form></dialog>
   <dialog id="commentsDialog" class="modal"><div class="modal-head"><h2>Комментарии</h2><button class="icon-btn close-comments">×</button></div><div id="commentsList" class="comments-list"></div><form id="commentForm" class="comment-form"><input id="commentInput" maxlength="240" placeholder="Написать комментарий..." required><button class="primary-btn">Отправить</button></form></dialog>
+  <dialog id="callDialog" class="call-dialog" aria-labelledby="callDialogTitle">
+    <div class="call-window">
+      <div class="call-dialog-head"><div><h2 id="callDialogTitle">Звонок</h2><p id="callStatus" role="status">Подготовка…</p></div><button class="icon-btn" id="closeCallDialog" type="button" aria-label="Закрыть звонок">×</button></div>
+      <div id="callStage" class="call-stage">
+        <div id="callAvatar" class="call-avatar">☎</div>
+        <video id="remoteCallVideo" autoplay playsinline></video>
+        <video id="localCallVideo" autoplay muted playsinline></video>
+      </div>
+      <div id="incomingCallActions" class="call-controls hidden"><button class="primary-btn" id="acceptCall" type="button">Ответить</button><button class="danger-call-btn" id="declineCall" type="button">Отклонить</button></div>
+      <div id="activeCallActions" class="call-controls hidden"><button class="outline-btn" id="toggleCallMute" type="button">Выключить микрофон</button><button class="outline-btn" id="toggleCallVideo" type="button">Выключить камеру</button><button class="danger-call-btn" id="endCall" type="button">Завершить</button></div>
+    </div>
+  </dialog>
   <dialog id="storyDialog" class="modal"><form method="dialog"><div class="modal-head"><h2>Новая история</h2><button class="icon-btn close-modal">×</button></div><p class="subtext">Добавь короткую историю. Она будет видна только в этом браузере.</p><textarea id="storyText" maxlength="120" rows="3" placeholder="Что интересного?"></textarea><div class="modal-actions"><button class="outline-btn close-modal">Отмена</button><button class="primary-btn" id="publishStory">Добавить</button></div></form></dialog>
   <div id="toast" class="toast" role="status"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

@@ -272,6 +272,9 @@
   let chatRealtimeChannel = null;
   let chatOpenSequence = 0;
   let chatMessages = [];
+  const friendCallChannels = new Map();
+  let activeCall = null;
+  let callPolicyWarningShown = false;
   const friendName = p => p?.display_name || 'Горожанин';
   const friendAvatar = p => publicUrl('avatars', p?.avatar_path);
   const friendPersonCard = (profile, actionMarkup = '', subtitle = '') => {
@@ -305,6 +308,9 @@
     friendRows = rows || [];
     const ids = friendRows.flatMap(row => [row.sender_id, row.recipient_id]);
     await getFriendProfiles(ids);
+    syncFriendCallChannels().catch(error => {
+      console.error('[NewGorod] Не удалось синхронизировать каналы звонков', error);
+    });
     const incoming = friendRows.filter(row => row.status === 'pending' && row.recipient_id === uid());
     const outgoing = friendRows.filter(row => row.status === 'pending' && row.sender_id === uid());
     const friends = friendRows.filter(row => row.status === 'accepted');
@@ -480,6 +486,359 @@
       }).join('')
       : emptyPeople('Пока нет друзей. Прими заявку или найди жителя в разделе «Друзья».');
   }
+  function friendCallTopic(peerId) {
+    return `friend-call:${[uid(), peerId].sort().join(':')}`;
+  }
+  function ensureFriendCallChannel(peerId) {
+    if (!uid() || !peerId || peerId === uid()) throw new Error('Некорректный собеседник для звонка.');
+    const existing = friendCallChannels.get(peerId);
+    if (existing) return existing;
+    let resolveReady;
+    let readyResolved = false;
+    const ready = new Promise(resolve => { resolveReady = resolve; });
+    const markReady = value => {
+      if (readyResolved) return;
+      readyResolved = true;
+      resolveReady(value);
+    };
+    const entry = { channel: null, ready, state: 'joining' };
+    entry.channel = sb().channel(friendCallTopic(peerId), { config: { private: true } })
+      .on('broadcast', { event: 'signal' }, ({ payload }) => {
+        handleCallSignal(peerId, payload).catch(error => reportError('Ошибка сигнала звонка', error));
+      })
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') {
+          entry.state = 'ready';
+          markReady(true);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          entry.state = 'error';
+          markReady(false);
+          if (!callPolicyWarningShown) {
+            callPolicyWarningShown = true;
+            toast('Звонки не подключены. Сначала выполни SQL из friend_calls.sql.');
+          }
+        }
+      });
+    friendCallChannels.set(peerId, entry);
+    return entry;
+  }
+  async function syncFriendCallChannels() {
+    if (!uid()) return;
+    const peerIds = new Set(friendRows
+      .filter(row => row.status === 'accepted')
+      .map(row => row.sender_id === uid() ? row.recipient_id : row.sender_id));
+    for (const [peerId, entry] of friendCallChannels) {
+      if (!peerIds.has(peerId)) {
+        friendCallChannels.delete(peerId);
+        await sb().removeChannel(entry.channel);
+        if (activeCall?.peerId === peerId) finishCall(false);
+      }
+    }
+    peerIds.forEach(peerId => ensureFriendCallChannel(peerId));
+  }
+  async function closeFriendCallChannels() {
+    const entries = [...friendCallChannels.values()];
+    friendCallChannels.clear();
+    await Promise.all(entries.map(entry => sb()?.removeChannel(entry.channel)));
+  }
+  function updateCallLaunchButtons() {
+    const disabled = !activeConversationId || !activeChatFriendId || Boolean(activeCall);
+    $('#startAudioCall').disabled = disabled;
+    $('#startVideoCall').disabled = disabled;
+  }
+  function setCallDialog(call, incoming, status) {
+    $('#callDialogTitle').textContent = friendName(friendProfileCache.get(call.peerId));
+    $('#callStatus').textContent = status;
+    $('#callStage').classList.toggle('audio-only', call.mode === 'audio');
+    $('#callAvatar').textContent = friendName(friendProfileCache.get(call.peerId))[0] || '☎';
+    $('#toggleCallMute').textContent = 'Выключить микрофон';
+    $('#toggleCallVideo').textContent = 'Выключить камеру';
+    $('#incomingCallActions').classList.toggle('hidden', !incoming);
+    $('#activeCallActions').classList.toggle('hidden', incoming);
+    $('#toggleCallVideo').classList.toggle('hidden', call.mode !== 'video');
+    if (!$('#callDialog').open) $('#callDialog').showModal();
+  }
+  async function sendCallSignal(peerId, signal) {
+    const entry = ensureFriendCallChannel(peerId);
+    if (!await entry.ready) throw new Error('Не удалось подключиться к каналу звонка. Проверь настройки Realtime.');
+    const result = await entry.channel.send({
+      type: 'broadcast',
+      event: 'signal',
+      payload: { ...signal, from: uid(), to: peerId }
+    });
+    if (result !== 'ok') throw new Error(`Не удалось отправить сигнал звонка (${result}).`);
+  }
+  function flushLocalCallIce(call) {
+    call.signalReady = true;
+    const candidates = call.pendingLocalIce.splice(0);
+    return candidates.reduce((queue, candidate) => queue.then(() =>
+      sendCallSignal(call.peerId, { type: 'ice', callId: call.callId, candidate })
+    ), Promise.resolve());
+  }
+  async function flushRemoteCallIce(call) {
+    if (!call.pc?.remoteDescription) return;
+    while (call.pendingRemoteIce.length) {
+      await call.pc.addIceCandidate(new RTCIceCandidate(call.pendingRemoteIce.shift()));
+    }
+  }
+  function createCallPeerConnection(call) {
+    if (!window.RTCPeerConnection) throw new Error('Браузер не поддерживает WebRTC-звонки.');
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+    call.pc = pc;
+    pc.onicecandidate = event => {
+      if (!event.candidate || activeCall !== call) return;
+      const candidate = event.candidate.toJSON();
+      if (!call.signalReady) {
+        call.pendingLocalIce.push(candidate);
+        return;
+      }
+      sendCallSignal(call.peerId, { type: 'ice', callId: call.callId, candidate })
+        .catch(error => reportError('Не удалось передать данные звонка', error));
+    };
+    pc.ontrack = event => {
+      if (activeCall !== call) return;
+      const remoteVideo = $('#remoteCallVideo');
+      if (event.streams?.[0]) remoteVideo.srcObject = event.streams[0];
+      else {
+        call.remoteStream ||= new MediaStream();
+        call.remoteStream.addTrack(event.track);
+        remoteVideo.srcObject = call.remoteStream;
+      }
+      if (call.mode === 'video') $('#callAvatar').hidden = true;
+      remoteVideo.play().catch(() => {
+        $('#callStatus').textContent = 'Нажми на звонок, чтобы включить звук.';
+      });
+    };
+    pc.onconnectionstatechange = () => {
+      if (activeCall !== call) return;
+      if (pc.connectionState === 'connected') {
+        clearTimeout(call.timeout);
+        $('#callStatus').textContent = 'Звонок активен.';
+      } else if (pc.connectionState === 'connecting') {
+        $('#callStatus').textContent = 'Соединяемся…';
+      } else if (pc.connectionState === 'failed') {
+        $('#callStatus').textContent = 'Связь не установлена. Для некоторых сетей нужен TURN-сервер.';
+      } else if (pc.connectionState === 'disconnected') {
+        $('#callStatus').textContent = 'Связь прервалась, пытаемся восстановить…';
+      }
+    };
+    return pc;
+  }
+  function finishCall(notifyPeer = true, signalType = 'end') {
+    const call = activeCall;
+    if (!call) return;
+    activeCall = null;
+    clearTimeout(call.timeout);
+    if (notifyPeer) {
+      sendCallSignal(call.peerId, { type: signalType, callId: call.callId })
+        .catch(error => console.error('[NewGorod] Не удалось завершить звонок у собеседника', error));
+    }
+    call.localStream?.getTracks().forEach(track => track.stop());
+    call.pc?.close();
+    $('#localCallVideo').srcObject = null;
+    $('#remoteCallVideo').srcObject = null;
+    $('#callAvatar').hidden = false;
+    if ($('#callDialog').open) $('#callDialog').close();
+    updateCallLaunchButtons();
+  }
+  function startCallTimeout(call) {
+    clearTimeout(call.timeout);
+    call.timeout = setTimeout(() => {
+      if (activeCall !== call) return;
+      const signalType = call.role === 'callee' ? 'missed' : 'cancel';
+      finishCall(true, signalType);
+      toast('На звонок не ответили.');
+    }, 45000);
+  }
+  async function startFriendCall(mode) {
+    const peerId = activeChatFriendId;
+    if (!peerId || activeCall) return;
+    let call;
+    try {
+      await ensureRemoteUser();
+      const isFriend = friendRows.some(row => row.status === 'accepted' &&
+        ((row.sender_id === uid() && row.recipient_id === peerId) ||
+         (row.recipient_id === uid() && row.sender_id === peerId)));
+      if (!isFriend) throw new Error('Звонить можно только подтверждённым друзьям.');
+      if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext)
+        throw new Error('Для звонков открой сайт по HTTPS и разреши доступ к микрофону/камере.');
+      const channel = ensureFriendCallChannel(peerId);
+      if (!await channel.ready) throw new Error('Канал звонка недоступен. Проверь friend_calls.sql в Supabase.');
+      call = {
+        callId: crypto.randomUUID(),
+        peerId,
+        mode,
+        role: 'caller',
+        pc: null,
+        localStream: null,
+        pendingLocalIce: [],
+        pendingRemoteIce: [],
+        signalReady: false
+      };
+      activeCall = call;
+      updateCallLaunchButtons();
+      setCallDialog(call, false, 'Подготавливаем звонок…');
+      call.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: mode === 'video'
+      });
+      if (activeCall !== call) {
+        call.localStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      $('#localCallVideo').srcObject = call.localStream;
+      if (mode === 'video') $('#localCallVideo').play().catch(() => {});
+      const pc = createCallPeerConnection(call);
+      call.localStream.getTracks().forEach(track => pc.addTrack(track, call.localStream));
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await sendCallSignal(peerId, {
+        type: 'offer',
+        callId: call.callId,
+        mode,
+        sdp: pc.localDescription.toJSON()
+      });
+      await flushLocalCallIce(call);
+      setCallDialog(call, false, 'Звоним…');
+      startCallTimeout(call);
+    } catch (error) {
+      if (activeCall === call) finishCall(false);
+      reportError('Не удалось начать звонок', error);
+    }
+  }
+  async function acceptFriendCall() {
+    const call = activeCall;
+    if (!call || call.role !== 'callee') return;
+    $('#acceptCall').disabled = true;
+    try {
+      await ensureRemoteUser();
+      if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext)
+        throw new Error('Для звонков открой сайт по HTTPS и разреши доступ к микрофону/камере.');
+      call.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: call.mode === 'video'
+      });
+      if (activeCall !== call) {
+        call.localStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      $('#localCallVideo').srcObject = call.localStream;
+      if (call.mode === 'video') $('#localCallVideo').play().catch(() => {});
+      const pc = createCallPeerConnection(call);
+      call.localStream.getTracks().forEach(track => pc.addTrack(track, call.localStream));
+      await pc.setRemoteDescription(call.offer);
+      await flushRemoteCallIce(call);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await sendCallSignal(call.peerId, {
+        type: 'answer',
+        callId: call.callId,
+        sdp: pc.localDescription.toJSON()
+      });
+      await flushLocalCallIce(call);
+      setCallDialog(call, false, 'Соединяемся…');
+      startCallTimeout(call);
+    } catch (error) {
+      $('#callStatus').textContent = error.message || 'Не удалось ответить на звонок.';
+      if (activeCall === call) {
+        call.localStream?.getTracks().forEach(track => track.stop());
+        call.localStream = null;
+        call.pc?.close();
+        call.pc = null;
+        $('#localCallVideo').srcObject = null;
+      }
+      reportError('Не удалось ответить на звонок', error);
+    } finally {
+      if (activeCall === call) $('#acceptCall').disabled = false;
+    }
+  }
+  async function handleCallSignal(peerId, payload) {
+    if (!payload || payload.from !== peerId || payload.to !== uid() || !payload.callId) return;
+    if (payload.type === 'offer') {
+      if (activeCall) {
+        if (activeCall.callId !== payload.callId)
+          await sendCallSignal(peerId, { type: 'busy', callId: payload.callId });
+        return;
+      }
+      if (!['audio', 'video'].includes(payload.mode) || !payload.sdp) return;
+      const call = {
+        callId: payload.callId,
+        peerId,
+        mode: payload.mode,
+        role: 'callee',
+        offer: payload.sdp,
+        pc: null,
+        localStream: null,
+        pendingLocalIce: [],
+        pendingRemoteIce: [],
+        signalReady: false
+      };
+      activeCall = call;
+      updateCallLaunchButtons();
+      setCallDialog(call, true, `Входящий ${call.mode === 'video' ? 'видеозвонок' : 'аудиозвонок'}`);
+      startCallTimeout(call);
+      return;
+    }
+    const call = activeCall;
+    if (!call || call.peerId !== peerId || call.callId !== payload.callId) return;
+    if (payload.type === 'answer' && call.role === 'caller' && call.pc) {
+      await call.pc.setRemoteDescription(payload.sdp);
+      await flushRemoteCallIce(call);
+      $('#callStatus').textContent = 'Соединяемся…';
+      return;
+    }
+    if (payload.type === 'ice' && payload.candidate) {
+      if (call.pc?.remoteDescription)
+        await call.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      else call.pendingRemoteIce.push(payload.candidate);
+      return;
+    }
+    if (['decline', 'cancel', 'end', 'missed', 'busy'].includes(payload.type)) {
+      if (payload.type === 'decline') toast('Друг отклонил звонок.');
+      else if (payload.type === 'missed') toast('Друг не ответил на звонок.');
+      else if (payload.type === 'busy') toast('Друг сейчас занят.');
+      else toast('Звонок завершён.');
+      finishCall(false);
+    }
+  }
+  function toggleCallMute() {
+    const tracks = activeCall?.localStream?.getAudioTracks() || [];
+    if (!tracks.length) return;
+    const enabled = !tracks[0].enabled;
+    tracks.forEach(track => { track.enabled = enabled; });
+    $('#toggleCallMute').textContent = enabled ? 'Выключить микрофон' : 'Включить микрофон';
+  }
+  function toggleCallVideo() {
+    const tracks = activeCall?.localStream?.getVideoTracks() || [];
+    if (!tracks.length) return;
+    const enabled = !tracks[0].enabled;
+    tracks.forEach(track => { track.enabled = enabled; });
+    $('#toggleCallVideo').textContent = enabled ? 'Выключить камеру' : 'Включить камеру';
+  }
+  $('#startAudioCall').addEventListener('click', () => startFriendCall('audio'));
+  $('#startVideoCall').addEventListener('click', () => startFriendCall('video'));
+  $('#acceptCall').addEventListener('click', acceptFriendCall);
+  $('#declineCall').addEventListener('click', () => finishCall(true, 'decline'));
+  $('#endCall').addEventListener('click', () => {
+    const signalType = activeCall?.role === 'callee' && !activeCall.pc ? 'decline'
+      : activeCall?.role === 'caller' && !activeCall.pc?.remoteDescription ? 'cancel' : 'end';
+    finishCall(true, signalType);
+  });
+  $('#closeCallDialog').addEventListener('click', () => {
+    const signalType = activeCall?.role === 'callee' && !activeCall.pc ? 'decline'
+      : activeCall?.role === 'caller' && !activeCall.pc?.remoteDescription ? 'cancel' : 'end';
+    finishCall(true, signalType);
+  });
+  $('#toggleCallMute').addEventListener('click', toggleCallMute);
+  $('#toggleCallVideo').addEventListener('click', toggleCallVideo);
+  $('#callDialog').addEventListener('cancel', event => {
+    event.preventDefault();
+    const signalType = activeCall?.role === 'callee' && !activeCall.pc ? 'decline'
+      : activeCall?.role === 'caller' && !activeCall.pc?.remoteDescription ? 'cancel' : 'end';
+    finishCall(true, signalType);
+  });
   async function closeChatSubscription() {
     if (chatRealtimeChannel && sb()) await sb().removeChannel(chatRealtimeChannel);
     chatRealtimeChannel = null;
@@ -497,6 +856,7 @@
   async function openDirectChat(friendId) {
     const sequence = ++chatOpenSequence;
     activeConversationId = null;
+    updateCallLaunchButtons();
     activeChatFriendId = friendId;
     chatMessages = [];
     $('#directChatName').textContent = friendName(friendProfileCache.get(friendId));
@@ -521,6 +881,7 @@
       if (messagesError) throw messagesError;
       if (sequence !== chatOpenSequence) return;
       activeConversationId = conversationId;
+      updateCallLaunchButtons();
       chatMessages = messages || [];
       renderDirectChatMessages();
       $('#directChatStatus').textContent = 'Сообщения обновляются в реальном времени.';
@@ -606,6 +967,8 @@
   $('#openMessages').addEventListener('click', loadChatFriends);
   window.addEventListener('newgorod-auth', event => {
     remoteUser = event.detail?.user || null;
+    if (activeCall) finishCall(false);
+    closeFriendCallChannels().catch(error => reportError('Не удалось закрыть каналы звонков', error));
     friendRows = [];
     friendProfileCache.clear();
     chatOpenSequence++;
@@ -617,6 +980,7 @@
     $('#directChatStatus').textContent = 'Открой переписку из списка друзей.';
     $('#directChatInput').disabled = true;
     $('#sendDirectMessage').disabled = true;
+    updateCallLaunchButtons();
     $('#directChatMessages').innerHTML = emptyPeople('Здесь появятся сообщения.');
     renderChatFriends();
     if (remoteUser) loadFriendRows().catch(error => reportError('Не удалось загрузить друзей', error));
