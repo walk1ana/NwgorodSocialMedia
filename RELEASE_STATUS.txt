@@ -32,3 +32,10 @@ iOS push notifications:
 - With the Supabase CLI logged in, run `supabase secrets set VAPID_PUBLIC_KEY=<public> VAPID_PRIVATE_KEY=<private> VAPID_SUBJECT=mailto:admin@example.com --project-ref jbefjlupnhkbbjiqfskp`.
 - Copy only the public key into `push-config.js`, then deploy with `supabase functions deploy send-push --project-ref jbefjlupnhkbbjiqfskp`.
 - New messages, friend requests, and accepted requests can notify subscribed devices. Live delivery requires the SQL, keys, Edge Function, and user permission to be configured.
+
+NewGorod Social Modules 2.0:
+- Added reactions, reposts, group chats, communities, achievements, XP, notifications, moderation, polls, events, marketplace listings, and video metadata.
+- Added Row Level Security policies, Storage buckets, notification triggers, XP triggers, event capacity checks, and Realtime publication.
+- Migration: `supabase/migrations/202611270001_social_modules.sql`.
+- The migration was applied successfully to Supabase project `jbefjlupnhkbbjiqfskp`.
+- Schema overview: `docs/supabase-schema-full.png`.
